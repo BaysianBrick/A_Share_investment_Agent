@@ -174,8 +174,27 @@ async def google_search(
         if not browser_was_provided:
             # 启动新的浏览器
             async with async_playwright() as p:
+                # 动态查找当前用户下最新的 chromium_headless_shell 目录
+                import glob
+                import re
+
+                user_home = os.path.expanduser("~")
+                base_dir = os.path.join(user_home, "AppData", "Local", "ms-playwright")
+                pattern = os.path.join(base_dir, "chromium_headless_shell-*")
+                candidates = glob.glob(pattern)
+                latest_path = None
+                if candidates:
+                    def version_key(path):
+                        m = re.search(r"chromium_headless_shell-(\d+)", path)
+                        return int(m.group(1)) if m else 0
+                    latest_path = max(candidates, key=version_key)
+                    exe_path = os.path.join(latest_path, "chrome-win", "headless_shell.exe")
+                else:
+                    exe_path = None
+
                 browser = await p.chromium.launch(
                     headless=headless,
+                    executable_path=exe_path if exe_path and os.path.exists(exe_path) else None,
                     args=[
                         "--disable-blink-features=AutomationControlled",
                         "--disable-features=IsolateOrigins,site-per-process",

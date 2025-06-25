@@ -19,6 +19,110 @@ class LLMClient(ABC):
         """获取模型回答"""
         pass
 
+class AzureOpenAIClient(LLMClient):
+    """Azure OpenAI API 客户端"""
+
+    def __init__(self, api_key=None, endpoint=None, deployment=None, api_version=None, model=None):
+        from openai import AzureOpenAI
+        self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
+        self.endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
+        self.deployment = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        self.api_version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+        self.model = model or os.getenv("AZURE_OPENAI_MODEL")
+        self.client = AzureOpenAI(
+            api_version=self.api_version,
+            azure_endpoint=self.endpoint,
+            api_key=self.api_key,
+        )
+        if not self.api_key:
+            logger.error(f"{ERROR_ICON} 未找到 AZURE_OPENAI_API_KEY 环境变量")
+            raise ValueError("AZURE_OPENAI_API_KEY not found in environment variables")
+        if not self.endpoint:
+            logger.error(f"{ERROR_ICON} 未找到 AZURE_OPENAI_ENDPOINT 环境变量")
+            raise ValueError("AZURE_OPENAI_ENDPOINT not found in environment variables")
+        if not self.deployment:
+            logger.error(f"{ERROR_ICON} 未找到 AZURE_OPENAI_DEPLOYMENT 环境变量")
+            raise ValueError("AZURE_OPENAI_DEPLOYMENT not found in environment variables")
+        if not self.model:
+            self.model = self.deployment  # fallback to deployment name if model not set
+
+        logger.info(
+            f"{SUCCESS_ICON} Azure OpenAI 客户端初始化成功 | endpoint: {self.endpoint} | deployment: {self.deployment} | api_version: {self.api_version} | model: {self.model}"
+        )
+
+    @backoff.on_exception(
+        backoff.expo,
+        (Exception),
+        max_tries=5,
+        max_time=300
+    )
+    def call_api_with_retry(self, messages, stream=False, **kwargs):
+        """带重试机制的 API 调用函数"""
+        try:
+            logger.info(
+                f"{WAIT_ICON} 正在调用 Azure OpenAI API | endpoint: {self.endpoint} | deployment: {self.deployment} | model: {self.model}"
+            )
+            logger.debug(f"请求内容: {messages}")
+            logger.debug(f"模型: {self.model}, 部署: {self.deployment}, 流式: {stream}")
+            response = self.client.chat.completions.create(
+                messages=messages,
+                max_completion_tokens=kwargs.get("max_completion_tokens", 800),
+                temperature=kwargs.get("temperature", 1.0),
+                top_p=kwargs.get("top_p", 1.0),
+                frequency_penalty=kwargs.get("frequency_penalty", 0.0),
+                presence_penalty=kwargs.get("presence_penalty", 0.0),
+                model=self.deployment,
+                stream=stream
+            )
+            logger.info(f"{SUCCESS_ICON} Azure OpenAI API 调用成功")
+            return response
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"{ERROR_ICON} Azure OpenAI API 调用失败: {error_msg}")
+            raise e
+
+    def get_completion(self, messages, max_retries=3, initial_retry_delay=1, **kwargs):
+        """获取聊天完成结果，包含重试逻辑"""
+        try:
+            logger.info(
+                f"{WAIT_ICON} 使用 Azure OpenAI | endpoint: {self.endpoint} | deployment: {self.deployment} | model: {self.model}"
+            )
+            logger.debug(f"消息内容: {messages}")
+
+            for attempt in range(max_retries):
+                try:
+                    response = self.call_api_with_retry(messages, **kwargs)
+                    if response is None:
+                        logger.warning(
+                            f"{ERROR_ICON} 尝试 {attempt + 1}/{max_retries}: Azure OpenAI API 返回空值")
+                        if attempt < max_retries - 1:
+                            retry_delay = initial_retry_delay * (2 ** attempt)
+                            logger.info(
+                                f"{WAIT_ICON} 等待 {retry_delay} 秒后重试...")
+                            time.sleep(retry_delay)
+                            continue
+                        return None
+
+                    content = response.choices[0].message.content
+                    logger.debug(f"Azure OpenAI API 原始响应: {content[:500]}...")
+                    logger.info(f"{SUCCESS_ICON} 成功获取 Azure OpenAI 响应")
+                    return content
+
+                except Exception as e:
+                    logger.error(
+                        f"{ERROR_ICON} 尝试 {attempt + 1}/{max_retries} 失败: {str(e)}")
+                    if attempt < max_retries - 1:
+                        retry_delay = initial_retry_delay * (2 ** attempt)
+                        logger.info(f"{WAIT_ICON} 等待 {retry_delay} 秒后重试...")
+                        time.sleep(retry_delay)
+                    else:
+                        logger.error(f"{ERROR_ICON} 最终错误: {str(e)}")
+                        return None
+
+        except Exception as e:
+            logger.error(f"{ERROR_ICON} get_completion 发生错误: {str(e)}")
+            return None
+
 
 class GeminiClient(LLMClient):
     """Google Gemini API 客户端"""
@@ -258,8 +362,13 @@ class LLMClientFactory:
         """
         # 如果设置为 auto，自动检测可用的客户端
         if client_type == "auto":
+            # 检查 Azure OpenAI 环境变量
+            if (kwargs.get("api_key") and kwargs.get("endpoint") and kwargs.get("deployment")) or \
+               (os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_DEPLOYMENT")):
+                client_type = "azure_openai"
+                logger.info(f"{WAIT_ICON} 自动选择 Azure OpenAI API")
             # 检查是否提供了 OpenAI Compatible API 相关配置
-            if (kwargs.get("api_key") and kwargs.get("base_url") and kwargs.get("model")) or \
+            elif (kwargs.get("api_key") and kwargs.get("base_url") and kwargs.get("model")) or \
                (os.getenv("OPENAI_COMPATIBLE_API_KEY") and os.getenv("OPENAI_COMPATIBLE_BASE_URL") and os.getenv("OPENAI_COMPATIBLE_MODEL")):
                 client_type = "openai_compatible"
                 logger.info(f"{WAIT_ICON} 自动选择 OpenAI Compatible API")
@@ -276,6 +385,14 @@ class LLMClientFactory:
             return OpenAICompatibleClient(
                 api_key=kwargs.get("api_key"),
                 base_url=kwargs.get("base_url"),
+                model=kwargs.get("model")
+            )
+        elif client_type == "azure_openai":
+            return AzureOpenAIClient(
+                api_key=kwargs.get("api_key"),
+                endpoint=kwargs.get("endpoint"),
+                deployment=kwargs.get("deployment"),
+                api_version=kwargs.get("api_version"),
                 model=kwargs.get("model")
             )
         else:

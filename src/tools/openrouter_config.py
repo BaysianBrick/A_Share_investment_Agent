@@ -49,9 +49,7 @@ if not model:
     model = "gemini-1.5-flash"
     logger.info(f"{WAIT_ICON} 使用默认模型: {model}")
 
-# 初始化 Gemini 客户端
-client = genai.Client(api_key=api_key)
-logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
+# （已移除顶层 Gemini 客户端初始化和日志，避免冗余输出）
 
 
 @backoff.on_exception(
@@ -62,8 +60,11 @@ logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
     giveup=lambda e: "AFC is enabled" not in str(e)
 )
 def generate_content_with_retry(model, contents, config=None):
-    """带重试机制的内容生成函数"""
+    """带重试机制的内容生成函数（仅 Gemini 路径使用）"""
     try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+        logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
         logger.info(f"{WAIT_ICON} 正在调用 Gemini API...")
         logger.debug(f"请求内容: {contents}")
         logger.debug(f"请求配置: {config}")
@@ -91,8 +92,18 @@ def generate_content_with_retry(model, contents, config=None):
         raise e
 
 
-def get_chat_completion(messages, model=None, max_retries=3, initial_retry_delay=1,
-                        client_type="auto", api_key=None, base_url=None):
+def get_chat_completion(
+    messages,
+    model=None,
+    max_retries=3,
+    initial_retry_delay=1,
+    client_type="auto",
+    api_key=None,
+    base_url=None,
+    endpoint=None,
+    deployment=None,
+    api_version=None
+):
     """
     获取聊天完成结果，包含重试逻辑
 
@@ -101,9 +112,12 @@ def get_chat_completion(messages, model=None, max_retries=3, initial_retry_delay
         model: 模型名称（可选）
         max_retries: 最大重试次数
         initial_retry_delay: 初始重试延迟（秒）
-        client_type: 客户端类型 ("auto", "gemini", "openai_compatible")
-        api_key: API 密钥（可选，仅用于 OpenAI Compatible API）
+        client_type: 客户端类型 ("auto", "gemini", "openai_compatible", "azure_openai")
+        api_key: API 密钥（可选，仅用于 OpenAI Compatible/Azure OpenAI API）
         base_url: API 基础 URL（可选，仅用于 OpenAI Compatible API）
+        endpoint: Azure OpenAI 终端地址（可选，仅用于 Azure OpenAI API）
+        deployment: Azure OpenAI 部署名称（可选，仅用于 Azure OpenAI API）
+        api_version: Azure OpenAI API 版本（可选，仅用于 Azure OpenAI API）
 
     Returns:
         str: 模型回答内容或 None（如果出错）
@@ -114,6 +128,9 @@ def get_chat_completion(messages, model=None, max_retries=3, initial_retry_delay
             client_type=client_type,
             api_key=api_key,
             base_url=base_url,
+            endpoint=endpoint,
+            deployment=deployment,
+            api_version=api_version,
             model=model
         )
 
