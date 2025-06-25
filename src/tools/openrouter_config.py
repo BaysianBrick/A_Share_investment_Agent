@@ -49,9 +49,7 @@ if not model:
     model = "gemini-1.5-flash"
     logger.info(f"{WAIT_ICON} 使用默认模型: {model}")
 
-# 初始化 Gemini 客户端
-client = genai.Client(api_key=api_key)
-logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
+# （已移除顶层 Gemini 客户端初始化和日志，避免冗余输出）
 
 
 @backoff.on_exception(
@@ -62,8 +60,11 @@ logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
     giveup=lambda e: "AFC is enabled" not in str(e)
 )
 def generate_content_with_retry(model, contents, config=None):
-    """带重试机制的内容生成函数"""
+    """带重试机制的内容生成函数（仅 Gemini 路径使用）"""
     try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+        logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
         logger.info(f"{WAIT_ICON} 正在调用 Gemini API...")
         logger.debug(f"请求内容: {contents}")
         logger.debug(f"请求配置: {config}")

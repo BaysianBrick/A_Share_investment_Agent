@@ -46,7 +46,9 @@ class AzureOpenAIClient(LLMClient):
         if not self.model:
             self.model = self.deployment  # fallback to deployment name if model not set
 
-        logger.info(f"{SUCCESS_ICON} Azure OpenAI 客户端初始化成功")
+        logger.info(
+            f"{SUCCESS_ICON} Azure OpenAI 客户端初始化成功 | endpoint: {self.endpoint} | deployment: {self.deployment} | api_version: {self.api_version} | model: {self.model}"
+        )
 
     @backoff.on_exception(
         backoff.expo,
@@ -57,7 +59,9 @@ class AzureOpenAIClient(LLMClient):
     def call_api_with_retry(self, messages, stream=False, **kwargs):
         """带重试机制的 API 调用函数"""
         try:
-            logger.info(f"{WAIT_ICON} 正在调用 Azure OpenAI API...")
+            logger.info(
+                f"{WAIT_ICON} 正在调用 Azure OpenAI API | endpoint: {self.endpoint} | deployment: {self.deployment} | model: {self.model}"
+            )
             logger.debug(f"请求内容: {messages}")
             logger.debug(f"模型: {self.model}, 部署: {self.deployment}, 流式: {stream}")
             response = self.client.chat.completions.create(
@@ -70,17 +74,19 @@ class AzureOpenAIClient(LLMClient):
                 model=self.deployment,
                 stream=stream
             )
-            logger.info(f"{SUCCESS_ICON} API 调用成功")
+            logger.info(f"{SUCCESS_ICON} Azure OpenAI API 调用成功")
             return response
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"{ERROR_ICON} API 调用失败: {error_msg}")
+            logger.error(f"{ERROR_ICON} Azure OpenAI API 调用失败: {error_msg}")
             raise e
 
     def get_completion(self, messages, max_retries=3, initial_retry_delay=1, **kwargs):
         """获取聊天完成结果，包含重试逻辑"""
         try:
-            logger.info(f"{WAIT_ICON} 使用 Azure OpenAI 模型: {self.model} 部署: {self.deployment}")
+            logger.info(
+                f"{WAIT_ICON} 使用 Azure OpenAI | endpoint: {self.endpoint} | deployment: {self.deployment} | model: {self.model}"
+            )
             logger.debug(f"消息内容: {messages}")
 
             for attempt in range(max_retries):
@@ -88,7 +94,7 @@ class AzureOpenAIClient(LLMClient):
                     response = self.call_api_with_retry(messages, **kwargs)
                     if response is None:
                         logger.warning(
-                            f"{ERROR_ICON} 尝试 {attempt + 1}/{max_retries}: API 返回空值")
+                            f"{ERROR_ICON} 尝试 {attempt + 1}/{max_retries}: Azure OpenAI API 返回空值")
                         if attempt < max_retries - 1:
                             retry_delay = initial_retry_delay * (2 ** attempt)
                             logger.info(
@@ -98,7 +104,7 @@ class AzureOpenAIClient(LLMClient):
                         return None
 
                     content = response.choices[0].message.content
-                    logger.debug(f"API 原始响应: {content[:500]}...")
+                    logger.debug(f"Azure OpenAI API 原始响应: {content[:500]}...")
                     logger.info(f"{SUCCESS_ICON} 成功获取 Azure OpenAI 响应")
                     return content
 
